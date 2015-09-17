@@ -132,6 +132,18 @@
       sym)
     (catch Throwable t
       (throw (Exception. (str "Compile error, could not resolve: " sym"'s value for usage in rest-api" t))))))
+    
+(defmacro run-resource
+  "stolen from liberator.core and is a replacement from defresource"
+  [& kvs]
+  (if (vector? (first kvs))
+    (let [args (first kvs)
+          kvs (rest kvs)]
+      ;; Rather than call resource, create anonymous fn in callers namespace for better debugability.
+      `(fn [~'request]
+         (liberator.core/run-resource ~'request (liberator.core/get-options (list ~@kvs)))))
+    `(fn [~'request]
+       (liberator.core/run-resource ~'request (liberator.core/get-options (list ~@kvs))))))
 
 (defmacro rest-api
   "compiles a defroute* with the http-method as specified in allowed-methods
@@ -151,13 +163,12 @@
 
    * (can be a symbol)
    "
-
   [name path params liberator-base liberator-resource swagger]
   (let [lib-body# (concat (resolve-symbol-value liberator-base)
                           (resolve-symbol-value liberator-resource))
         res# (apply hash-map lib-body#)
         swagger-map# (apply hash-map (resolve-symbol-value swagger))
-        lib-res# (apply list 'liberator.core/defresource (gensym "api-service-") path params lib-body#)
+        lib-res# (apply list 'common.liberator/run-resource path params lib-body#)
         routes# (gensym "lib-route-")
         verbs {:get 'compojure.api.sweet/GET* :put 'compojure.api.sweet/PUT* :post 'compojure.api.sweet/POST* :delete 'compojure.api.sweet/DELETE*
                :any 'compojure.api.sweet/ANY* :head 'compojure.api.sweet/HEAD* :patch 'compojure.api.sweet/PATCH* :options 'compojure.api.sweet/OPTIONS*}
@@ -169,9 +180,7 @@
                                 path
                                 params
                                 (mapcat identity (restructure-swagger method  swagger-map# res#)))
-                         lib-res#))
-        ]
-
+                         (resolve-symbol-value lib-res#)))]
     `(compojure.api.sweet/defroutes* ~name ~@(map #(apply list (verbs %) (route-fn %)) methods#))))
 
 
